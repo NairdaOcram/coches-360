@@ -1,7 +1,5 @@
 # Database Schema
 
----
-
 This document explains the structure of the Entity Relationship model used in the project, which define the 
 relationships between retailers, brands, and cars.
 
