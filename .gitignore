@@ -1,0 +1,5 @@
+/database/coches360.db
+/logs
+.env
+.idea
+.venv
