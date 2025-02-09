@@ -33,11 +33,13 @@ headers = {
     "x-adevinta-page-url": "https://www.coches.net/search/",
     "x-adevinta-referer": "https://www.coches.net/",
     "x-adevinta-session-id": "73341d5f-4bf0-43ef-aca0-7b9f6ad75a5c",
-    "x-schibsted-tenant": "coches"
+    "x-schibsted-tenant": "coches",
+    "content-type": "application/json",
 }
 
 def fetch_categories():
     logging.info('Function fetch_categories called')
+
     try:
         response = requests.get(url_categories, headers = headers)
 
@@ -62,9 +64,17 @@ def insert_categories(categories):
             category_label = category.get('label', None)
 
             cursor.execute('''
-                            INSERT OR IGNORE INTO category (id, name, retailer_id)
-                            VALUES (?, ?, ?)
-                        ''', (category_id, category_label, COCHES_ID))
+                            INSERT OR IGNORE INTO BRAND (name)
+                            VALUES (?)
+                        ''', (category_label,))
+
+            brand_id = cursor.lastrowid
+
+            if brand_id > 0:
+                cursor.execute('''
+                                INSERT OR IGNORE INTO RETAILER_BRAND (retailer_id, brand_id, internal_code)
+                                VALUES (?, ?, ?)
+                            ''', (COCHES_ID, brand_id, category_id))
 
         conn.commit()
         conn.close()
@@ -73,12 +83,74 @@ def insert_categories(categories):
     except Exception as e:
         logging.error(f'An error occurred while saving categories to the database: {str(e)}')
 
+def fetch_listings():
+    logging.info('Function fetch_listings called')
+
+    try:
+        conn = sqlite3.connect('../database/coches360.db')
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM CATEGORY WHERE retailer_id = 1")
+        category_ids = [row[0] for row in cursor.fetchall()]
+        conn.close()
+
+        for category_id in category_ids:
+            page = 1
+            all_listings = []
+
+            while True:
+                data = {
+                    "pagination": {"page": page, "size": 100},
+                    "sort": {"order": "desc", "term": "relevance"},
+                    "filters": {
+                        "categories": {"category1Ids": [2500]},
+                        "offerTypeIds": [0, 1, 2, 3, 4, 5],
+                        "isCertified": False,
+                        "onlyPeninsula": False,
+                        "sellerTypeId": 0,
+                        "transmissionTypeId": 0,
+                        "vehicles": [{"make": "", "makeId": category_id, "model": "", "modelId": 0}]
+                    }
+                }
+
+                response = requests.post(url_listing, headers = headers, json = data)
+
+                if response.status_code == 200:
+                    listings = response.json()
+
+                    if listings.get("items", []) == []:
+                        logging.info(f'Fetched listings for category {category_id} with a total of {page} pages ')
+                        break
+
+                    all_listings.extend(listings.get("items", []))
+                    page += 1
+                else:
+                    logging.error(f'Failed to fetch listings for category {category_id}. Status code: {response.status_code}')
+                    break
+
+            if all_listings:
+                save_to_json(category_id, all_listings)
+
+    except Exception as e:
+        logging.error(f'An error occurred while fetching listing: {str(e)}')
+
+def save_to_json(category_id, data):
+    try:
+        output_dir = '../data/listings'
+        os.makedirs(output_dir, exist_ok=True)
+        file_path = os.path.join(output_dir, f'listings_{category_id}.json')
+        with open(file_path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=4)
+        logging.info(f'Listings for category {category_id} saved successfully.')
+    except Exception as e:
+        logging.error(f'Failed to save listings for category {category_id}: {str(e)}')
 
 def main():
     categories = fetch_categories()
 
     if categories:
         insert_categories(categories)
+
+    #listings = fetch_listings()
 
 if __name__ == '__main__':
     main()
