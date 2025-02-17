@@ -63,18 +63,22 @@ def insert_categories(categories):
             category_id = category.get('id', None)
             category_label = category.get('label', None)
 
-            cursor.execute('''
-                            INSERT OR IGNORE INTO BRAND (name)
-                            VALUES (?)
-                        ''', (category_label,))
+            cursor.execute('SELECT id FROM BRAND WHERE name = ?', (category_label,))
+            brand = cursor.fetchone()
 
-            brand_id = cursor.lastrowid
-
-            if brand_id > 0:
+            if brand:
+                brand_id = brand[0]
+            else:
                 cursor.execute('''
-                                INSERT OR IGNORE INTO RETAILER_BRAND (retailer_id, brand_id, internal_code)
-                                VALUES (?, ?, ?)
-                            ''', (COCHES_ID, brand_id, category_id))
+                    INSERT INTO BRAND (name)
+                    VALUES (?)
+                ''', (category_label,))
+                brand_id = cursor.lastrowid
+
+            cursor.execute('''
+                INSERT OR IGNORE INTO RETAILER_BRAND (retailer_id, brand_id, internal_code)
+                VALUES (?, ?, ?)
+            ''', (COCHES_ID, brand_id, category_id))
 
         conn.commit()
         conn.close()
@@ -89,7 +93,7 @@ def fetch_listings():
     try:
         conn = sqlite3.connect('../database/coches360.db')
         cursor = conn.cursor()
-        cursor.execute("SELECT id FROM CATEGORY WHERE retailer_id = 1")
+        cursor.execute("SELECT internal_code FROM RETAILER_BRAND WHERE retailer_id = 1")
         category_ids = [row[0] for row in cursor.fetchall()]
         conn.close()
 
@@ -143,6 +147,33 @@ def save_to_json(category_id, data):
         logging.info(f'Listings for category {category_id} saved successfully.')
     except Exception as e:
         logging.error(f'Failed to save listings for category {category_id}: {str(e)}')
+
+"""
+
+id                                      # ID COCHE EN WEB
+creation_date                           # CUANDO SE CREO EL ANUNCIO
+title                                   # TITULO ANUNCIO (NOMBRE COCHE)
+url                                     # coches.net + URL
+price --> amount                        # PRECIO COCHE
+price --> hasTaxes                      # IMPUESTO INCLUIDOS (IVA)
+price --> indicator --> average         # MEDIDOR INTERNO COCHES.NET (PRECIO MEDIO RECOMENDADO)
+price --> indicator --> rank            # ESCALA (1 = PRECIO ALTO, 2 = PRECIO ELEVADO, 3 = PRECIO JUSTO, 4 = BUEN PRECIO
+                                        #         5 = SUPER PRECIO)
+seller --> name                         # VENDEDOR DEL COCHE
+seller --> isProfessional               # VENDEDOR VERIFICADO (CONCESIONARIOS NORMALMENTE)
+seller --> ratings --> scoreAverage     # MEDIA CALIFACION VENDEDOR
+seller --> ratings --> commentsNumber   # NUMERO TOTAL DE COMENTARIOS
+km                                      # NUMERO TOTAL KM COCHE
+year                                    # AÑO COCHE
+cubicCapacity                           # VOLUMEN COCHE
+location --> regionLiteral              # REGION VENTA COCHE
+location --> mainProvince               # PROVINCIA VENTA COCHE
+location --> cityLiteral                # CIUDAD VENTA COCHE
+for resource in resources               # LINK IMAGENES
+    resources --> type  IF == IMAGE
+        resources --> type --> url                                
+
+"""
 
 def main():
     categories = fetch_categories()
