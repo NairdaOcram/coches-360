@@ -13,13 +13,11 @@ CORS(app)  # Enable CORS for all routes
 # Configure logging
 logging.basicConfig(filename='logs/api.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-
 def remove_accents(text):
     return ''.join(
         c for c in unicodedata.normalize('NFD', text)
         if unicodedata.category(c) != 'Mn'
     )
-
 
 def normalize_text(text):
     text = text.lower()  # Convert to lowercase
@@ -29,7 +27,6 @@ def normalize_text(text):
     text = re.sub(r'(\d+)k', lambda x: str(int(x.group(1)) * 1000), text)  # Convert "100k" to "100000"
     text = re.sub(r'(\d+)\s?mil', lambda x: str(int(x.group(1)) * 1000), text)  # Convert "30 mil" or "30mil" to "30000"
     return text
-
 
 # Construct absolute path to the model
 model_path = os.path.join(os.path.dirname(__file__), 'model', 'output', 'model-best')
@@ -42,14 +39,12 @@ except Exception as e:
     logging.error(f'Failed to load SpaCy model: {str(e)}')
     raise
 
-
 # Database connection
 def get_db_connection():
     db_path = os.path.join(os.path.dirname(__file__), 'database', 'coches360.db')
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row  # Return rows as dictionaries
     return conn
-
 
 @app.route('/cars', methods=['GET'])
 def get_cars():
@@ -139,6 +134,89 @@ def get_cars():
         logging.error(f'Error processing request: {str(e)}')
         return jsonify({'error': 'Internal server error'}), 500
 
+@app.route('/cars/<brand>', methods=['GET'])
+def get_cars_by_brand(brand):
+    try:
+        if not brand:
+            logging.error('No brand provided in request')
+            return jsonify({'error': 'Brand is required'}), 400
+
+        normalized_brand = normalize_text(brand)
+        logging.info(f'Received brand: {brand}')
+
+        query = '''
+            SELECT CAR.web_id, CAR.title, CAR.price, CAR.year, CAR.km, CAR.url, BRAND.name AS brand_name
+            FROM CAR
+            JOIN BRAND ON CAR.brand_id = BRAND.id
+            WHERE LOWER(BRAND.name) = LOWER(?)
+        '''
+        params = [normalized_brand]
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(query, params)
+        cars = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+
+        response = {
+            'brand': brand,
+            'cars': cars
+        }
+
+        if not cars:
+            response['message'] = f'No cars found for brand: {brand}'
+            logging.info(f'No cars found for brand: {brand}')
+        else:
+            logging.info(f'Found {len(cars)} cars for brand: {brand}')
+
+        return jsonify(response), 200
+
+    except Exception as e:
+        logging.error(f'Error processing brand request: {str(e)}')
+        return jsonify({'error': 'Internal server error'}), 500
+
+@app.route('/cars/<brand>/<model>', methods=['GET'])
+def get_cars_by_brand_model(brand, model):
+    try:
+        if not brand or not model:
+            logging.error('Brand or model not provided in request')
+            return jsonify({'error': 'Both brand and model are required'}), 400
+
+        normalized_brand = normalize_text(brand)
+        normalized_model = normalize_text(model)
+        logging.info(f'Received brand: {brand}, model: {model}')
+
+        query = '''
+            SELECT CAR.web_id, CAR.title, CAR.price, CAR.year, CAR.km, CAR.url, BRAND.name AS brand_name
+            FROM CAR
+            JOIN BRAND ON CAR.brand_id = BRAND.id
+            WHERE LOWER(BRAND.name) = LOWER(?) AND LOWER(CAR.title) LIKE LOWER(?)
+        '''
+        params = [normalized_brand, f'%{normalized_model}%']
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(query, params)
+        cars = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+
+        response = {
+            'brand': brand,
+            'model': model,
+            'cars': cars
+        }
+
+        if not cars:
+            response['message'] = f'No cars found for brand: {brand}, model: {model}'
+            logging.info(f'No cars found for brand: {brand}, model: {model}')
+        else:
+            logging.info(f'Found {len(cars)} cars for brand: {brand}, model: {model}')
+
+        return jsonify(response), 200
+
+    except Exception as e:
+        logging.error(f'Error processing brand/model request: {str(e)}')
+        return jsonify({'error': 'Internal server error'}), 500
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
